@@ -18,29 +18,31 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Скачать репозиторий
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
       - name: Установить Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Установить библиотеки
+      - name: Найти папку бота
         run: |
-          DIR=.
-          [ -f bot.py ] || DIR=avtoposting
-          pip install -r "$DIR/requirements.txt"
+          BOT=$(find . -name bot.py -not -path "./.git/*" | head -n 1)
+          if [ -z "$BOT" ]; then echo "Не найден bot.py в репозитории"; exit 1; fi
+          echo "BOT_DIR=$(dirname "$BOT")" >> "$GITHUB_ENV"
+          echo "Папка бота: $(dirname "$BOT")"
+
+      - name: Установить библиотеки
+        run: pip install -r "$BOT_DIR/requirements.txt"
 
       - name: Опубликовать посты
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
-          DIR=.
-          [ -f bot.py ] || DIR=avtoposting
-          cd "$DIR"
+          cd "$BOT_DIR"
           python bot.py --once --ahead 20
 
       - name: Запомнить, что уже выложено
