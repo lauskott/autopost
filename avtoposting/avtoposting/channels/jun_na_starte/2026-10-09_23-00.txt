@@ -1,0 +1,21 @@
+📌 **Шпаргалка (Java): == или equals()?**
+
+`==` сравнивает ссылки: один ли это объект в памяти.
+`equals()` сравнивает содержимое: одинаковый ли текст.
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        String a = new String("java");
+        String b = new String("java");
+
+        System.out.println(a == b);      // false
+        System.out.println(a.equals(b)); // true
+    }
+}
+```
+
+Строки в Java всегда сравнивай через `equals()`.
+`==` оставь для примитивов: int, double, char, boolean.
+
+⚠️ Ловушка: `"java" == "java"` может вернуть true из-за пула строк. Не полагайся на это: в реальном коде строки приходят откуда угодно.

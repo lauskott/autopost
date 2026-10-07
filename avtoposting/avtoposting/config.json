@@ -1,0 +1,8 @@
+{
+  "token": "ВСТАВЬ_СЮДА_ТОКЕН_ОТ_BOTFATHER",
+  "timezone": "Asia/Vladivostok",
+  "max_late_hours": 3,
+  "channels": {
+    "jun_na_starte": "@jun_na_starte"
+  }
+}

@@ -1,0 +1,28 @@
+⚠️ **Ошибка новичка: NullPointerException**
+
+Самая частая ошибка в Java. Она возникает, когда ты вызываешь метод у переменной, в которой ничего нет (null).
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        String name = null;
+
+        // Так программа упадёт:
+        // System.out.println(name.length());
+
+        // Так безопасно:
+        if (name != null) {
+            System.out.println(name.length());
+        } else {
+            System.out.println("Имя не задано");
+        }
+
+        System.out.println("admin".equals(name)); // false
+    }
+}
+```
+
+**Как избежать:**
+1. Проверяй переменную на null перед использованием.
+2. Сравнивай строки так: `"admin".equals(name)`, а не `name.equals("admin")`. Первый вариант не упадёт, даже если name равно null.
+3. Читай текст ошибки: в новых версиях Java там прямо написано, какая переменная оказалась null.
