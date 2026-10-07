@@ -17,6 +17,13 @@
   python bot.py --now ФАЙЛ [--to @канал]
                            — отправить пост прямо сейчас (для проверки вида)
   python bot.py --once     — один проход и выход (для сервера/планировщика)
+  python bot.py --once --ahead 20
+                           — то же, но если пост выходит в ближайшие 20 минут,
+                             дождаться его времени и выложить ровно в срок
+                             (так бот работает на GitHub Actions)
+
+Токен берётся из переменной окружения TELEGRAM_TOKEN, а если её нет —
+из config.json. На сервере токен хранится в секретах, а не в файле.
 
 Разметка в текстовых постах:
   **жирный**   `код в строке`   ||скрытый текст||
@@ -31,6 +38,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
 import time
@@ -109,9 +117,17 @@ def load_config() -> dict:
         print(f"Ошибка в config.json (строка {e.lineno}): {e.msg}")
         sys.exit(1)
 
-    token = str(cfg.get("token", "")).strip()
+    env_token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    file_token = str(cfg.get("token", "")).strip()
+    if env_token and re.fullmatch(r"\d{5,}:[\w-]{30,}", file_token):
+        print("В config.json лежит настоящий токен бота, а на GitHub его видят все. "
+              "Сотри его из config.json, а в @BotFather сделай /revoke и положи новый токен "
+              "в секрет TELEGRAM_TOKEN.")
+        sys.exit(1)
+    token = env_token or file_token
     if not token or "ВСТАВЬ" in token:
-        print("В config.json не вставлен токен бота. Получи его у @BotFather и вставь в поле \"token\".")
+        print("Не найден токен бота. На ноутбуке вставь его в config.json в поле \"token\". "
+              "На GitHub добавь секрет TELEGRAM_TOKEN (Settings → Secrets and variables → Actions).")
         sys.exit(1)
     cfg["token"] = token
     cfg.setdefault("timezone", "Asia/Vladivostok")
@@ -328,7 +344,7 @@ def explain_api_error(msg: str) -> str:
     if "can't parse entities" in low:
         return msg + " → ошибка разметки в посте"
     if "unauthorized" in low:
-        return msg + " → неверный токен в config.json"
+        return msg + " → неверный токен бота"
     return msg
 
 
@@ -345,7 +361,9 @@ def publish(cfg: dict, post: Post, chat_override: str | None = None) -> None:
 
 # ---------------------------------------------------------------- основной цикл
 
-def run_pass(cfg: dict, tz: ZoneInfo, sent: dict, reported: set) -> None:
+def run_pass(cfg: dict, tz: ZoneInfo, sent: dict, reported: set) -> bool:
+    """Выкладывает всё, чему пришло время. Возвращает False, если были ошибки."""
+    ok = True
     now = datetime.now(tz)
     max_late = timedelta(hours=float(cfg["max_late_hours"]))
     for post in find_posts(cfg, tz):
@@ -364,8 +382,9 @@ def run_pass(cfg: dict, tz: ZoneInfo, sent: dict, reported: set) -> None:
             if "network" not in reported:
                 log(f"Нет связи с Telegram: {e}. Проверь интернет или включи VPN. Повторю автоматически.")
                 reported.add("network")
-            return
+            return False
         except (ApiError, PostError) as e:
+            ok = False
             if post.key not in reported:
                 msg = explain_api_error(str(e)) if isinstance(e, ApiError) else str(e)
                 log(f"ОШИБКА {post.key}: {msg}. Исправь — бот попробует снова сам.")
@@ -373,9 +392,10 @@ def run_pass(cfg: dict, tz: ZoneInfo, sent: dict, reported: set) -> None:
             continue
         reported.discard("network")
         reported.discard(post.key)
-        sent[post.key] = {"status": "sent", "at": now.isoformat(timespec="seconds")}
+        sent[post.key] = {"status": "sent", "at": datetime.now(tz).isoformat(timespec="seconds")}
         save_sent(sent)
         log(f"ОПУБЛИКОВАН {post.key} → {post.chat}")
+    return ok
 
 
 def check_bot(cfg: dict) -> None:
@@ -390,22 +410,41 @@ def check_bot(cfg: dict) -> None:
     log(f"Бот @{me.get('username')} на связи")
 
 
-def cmd_run(cfg: dict, tz: ZoneInfo, once: bool) -> None:
+def wait_for_soon_posts(cfg: dict, tz: ZoneInfo, sent: dict, reported: set, ahead_minutes: float) -> bool:
+    """Если пост выходит в ближайшие ahead_minutes минут — дождаться и выложить в срок."""
+    ok = True
+    while True:
+        now = datetime.now(tz)
+        horizon = now + timedelta(minutes=ahead_minutes)
+        soon = [p for p in find_posts(cfg, tz) if p.key not in sent and now < p.when <= horizon]
+        if not soon:
+            return ok
+        nxt = soon[0]
+        wait = (nxt.when - now).total_seconds()
+        log(f"Жду {nxt.key}: выйдет в {nxt.when:%H:%M} (через {int(wait // 60)} мин {int(wait % 60)} с)")
+        time.sleep(wait + 1)
+        ok = run_pass(cfg, tz, sent, reported) and ok
+
+
+def cmd_run(cfg: dict, tz: ZoneInfo, once: bool, ahead_minutes: float = 0) -> bool:
     check_bot(cfg)
     sent = load_sent()
     reported: set = set()
-    if not once:
-        upcoming = [p for p in find_posts(cfg, tz) if p.key not in sent and p.when > datetime.now(tz)]
-        if upcoming:
-            nxt = upcoming[0]
-            log(f"В очереди {len(upcoming)} пост(ов). Ближайший: {nxt.key} — {nxt.when:%d.%m в %H:%M}")
-        else:
-            log("Запланированных постов нет. Добавь файлы в папку channels/.")
-        log("Работаю. Не закрывай это окно. Остановить: Ctrl+C")
+    if once:
+        ok = run_pass(cfg, tz, sent, reported)
+        if ahead_minutes > 0:
+            ok = wait_for_soon_posts(cfg, tz, sent, reported, ahead_minutes) and ok
+        return ok
+
+    upcoming = [p for p in find_posts(cfg, tz) if p.key not in sent and p.when > datetime.now(tz)]
+    if upcoming:
+        nxt = upcoming[0]
+        log(f"В очереди {len(upcoming)} пост(ов). Ближайший: {nxt.key} — {nxt.when:%d.%m в %H:%M}")
+    else:
+        log("Запланированных постов нет. Добавь файлы в папку channels/.")
+    log("Работаю. Не закрывай это окно. Остановить: Ctrl+C")
     while True:
         run_pass(cfg, tz, sent, reported)
-        if once:
-            return
         time.sleep(CHECK_EVERY_SECONDS)
 
 
@@ -489,6 +528,8 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="один проход и выход")
     parser.add_argument("--now", metavar="ФАЙЛ", help="отправить пост прямо сейчас")
     parser.add_argument("--to", metavar="@канал", help="куда отправить пост для --now")
+    parser.add_argument("--ahead", metavar="МИНУТ", type=float, default=0,
+                        help="с --once: дождаться постов, которые выходят в ближайшие N минут")
     args = parser.parse_args()
 
     if args.check or args.list:
@@ -509,9 +550,12 @@ def main() -> None:
         cmd_now(cfg, tz, args.now, args.to)
         return
     try:
-        cmd_run(cfg, tz, once=args.once)
+        ok = cmd_run(cfg, tz, once=args.once, ahead_minutes=args.ahead)
     except KeyboardInterrupt:
         log("Остановлен.")
+        return
+    if args.once and not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
