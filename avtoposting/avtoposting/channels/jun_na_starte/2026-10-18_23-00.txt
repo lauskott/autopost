@@ -1,0 +1,32 @@
+🧩 **Задача: частота слов**
+Посчитай, сколько раз встречается каждое слово в строке.
+Вход: «кот пёс кот рыба пёс кот»
+Выход: кот 3, пёс 2, рыба 1
+
+Решения на Java и Python ниже, сначала попробуй сам 👇
+
+```spoiler
+// Java
+import java.util.HashMap;
+import java.util.Map;
+
+public class Main {
+    public static void main(String[] args) {
+        String text = "кот пёс кот рыба пёс кот";
+        Map<String, Integer> counts = new HashMap<>();
+        for (String word : text.split(" ")) {
+            counts.put(word, counts.getOrDefault(word, 0) + 1);
+        }
+        System.out.println(counts); // кот=3, пёс=2, рыба=1 (порядок может быть любым)
+    }
+}
+
+# Python
+text = "кот пёс кот рыба пёс кот"
+counts = {}
+for word in text.split():
+    counts[word] = counts.get(word, 0) + 1
+print(counts)  # {'кот': 3, 'пёс': 2, 'рыба': 1}
+```
+
+💡 Приём в обоих языках один: если слова ещё нет, берём 0 и прибавляем 1. В Python то же самое умеет `Counter` из модуля collections: `Counter(text.split())`.
