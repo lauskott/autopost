@@ -22,5 +22,9 @@
   "channels/jun_na_starte/2026-10-11_23-00.txt": {
     "status": "sent",
     "at": "2026-10-12T00:06:38+10:00"
+  },
+  "channels/jun_na_starte/2026-10-12_23-00.txt": {
+    "status": "skipped",
+    "at": "2026-10-13T04:51:24+10:00"
   }
 }
